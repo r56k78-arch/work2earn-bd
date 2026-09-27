@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="bn">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Work2Earn BD</title><link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header><div class="brand"><div class="logo">W2E</div><div><b>Work2Earn BD</b><small>Work • Complete • Earn</small></div></div>
+<button id="theme">☀️ Light</button></header>
+<main>
+<section id="auth" class="card">
+<h1>Work2Earn BD</h1><p>বাংলাদেশের Task & Reward Platform</p>
+<div class="tabs"><button onclick="showTab('login')">Login</button><button onclick="showTab('register')">Register</button></div>
+<form id="login"><input id="l_login" placeholder="Username / Email / Mobile" required><input id="l_pass" type="password" placeholder="Password" required><button>Login</button></form>
+<form id="register" class="hidden"><input id="r_user" placeholder="Username" required><input id="r_mobile" placeholder="Mobile Number" required><input id="r_email" type="email" placeholder="Email" required><input id="r_pass" type="password" placeholder="Password (8+ characters)" required><input id="r_confirm" type="password" placeholder="Confirm Password" required><input id="r_ref" placeholder="Referral Code (optional)"><button>Register</button></form>
+<div id="msg"></div></section>
+<section id="dash" class="hidden">
+<div class="stats"><div><small>Balance</small><strong id="balance">৳0</strong></div><div><small>Total Earned</small><strong id="earned">৳0</strong></div><div><small>Referrals</small><strong id="refs">0</strong></div></div>
+<div class="card"><h2>👤 Profile</h2><p>Username: <b id="username"></b></p><p>Your Referral Code: <b id="refcode"></b></p><p class="hint">একজন referral করা user ২০টি task complete করলে referrer পাবেন ৳20 bonus.</p></div>
+<div class="card"><h2>📋 Available Tasks</h2><div id="tasks"></div></div>
+<div class="card"><h2>💳 Withdraw</h2><p>Minimum withdrawal: <b>৳50</b></p><form id="withdraw"><select id="method"><option>bKash</option><option>Nagad</option><option>Binance</option></select><input id="account" placeholder="Account / Wallet ID" required><input id="amount" type="number" min="50" placeholder="Amount (৳)" required><button>Request Withdrawal</button></form></div>
+<button class="logout" onclick="logout()">Logout</button>
+</section>
+</main>
+<script src="app.js"></script>
+</body></html>
