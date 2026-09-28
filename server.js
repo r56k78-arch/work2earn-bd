@@ -8,6 +8,8 @@ const Database = require("better-sqlite3");
 const app = express();
 const db = new Database("work2earn.db");
 const PORT = process.env.PORT || 3000;
+const TELEGRAM_SUPPORT_URL = "https://t.me/arafatxyz0";
+const TELEGRAM_GROUP_URL = "https://t.me/+zlVgZjLxRjtlODM1";
 const JWT_SECRET = process.env.JWT_SECRET || "CHANGE_THIS_SECRET_BEFORE_DEPLOYING";
 
 app.use(helmet({ contentSecurityPolicy: false }));
