@@ -2,15 +2,23 @@ const $ = (id) => document.getElementById(id);
 
 let token = localStorage.getItem("w2e_admin_token") || "";
 
+/* =========================
+   MESSAGE
+========================= */
 
 function msg(el, text, ok = false) {
+  if (!el) return;
+
   el.textContent = text || "";
   el.className = "msg " + (ok ? "ok" : "");
 }
 
 
-async function api(path, options = {}) {
+/* =========================
+   API
+========================= */
 
+async function api(path, options = {}) {
   const headers = {
     "Content-Type": "application/json",
     ...(options.headers || {})
@@ -39,45 +47,42 @@ async function api(path, options = {}) {
 }
 
 
+/* =========================
+   LOGIN / LOGOUT
+========================= */
+
 function showPanel() {
-
   $("loginBox").hidden = true;
-
   $("panel").hidden = false;
 
   loadAll();
 }
 
-
 function showLogin() {
-
   $("loginBox").hidden = false;
-
   $("panel").hidden = true;
 }
 
-
 async function login() {
-
   const username = $("adminUser").value.trim();
-
   const password = $("adminPass").value;
 
+  if (!username || !password) {
+    msg($("loginMsg"), "Username এবং password দিন।");
+    return;
+  }
 
   try {
-
     const data = await api(
       "/api/admin/login",
       {
         method: "POST",
-
         body: JSON.stringify({
           username,
           password
         })
       }
     );
-
 
     token = data.token;
 
@@ -86,29 +91,28 @@ async function login() {
       token
     );
 
+    msg($("loginMsg"), "Login successful.", true);
 
     showPanel();
 
   } catch (error) {
-
-    msg(
-      $("loginMsg"),
-      error.message
-    );
-
+    msg($("loginMsg"), error.message);
   }
 }
 
 
+/* =========================
+   LOAD EVERYTHING
+========================= */
+
 async function loadAll() {
 
-  /* DASHBOARD STATS */
+  /* =========================
+     DASHBOARD STATS
+  ========================= */
 
   try {
-
-    const data =
-      await api("/api/admin/stats");
-
+    const data = await api("/api/admin/stats");
 
     $("sUsers").textContent =
       data.users ?? 0;
@@ -117,10 +121,10 @@ async function loadAll() {
       data.tasks ?? 0;
 
     $("sProofs").textContent =
-      data.proofs ?? 0;
+      data.pendingProofs ?? 0;
 
     $("sWithdrawals").textContent =
-      data.withdrawals ?? 0;
+      data.pendingWithdrawals ?? 0;
 
   } catch (error) {
 
@@ -128,320 +132,383 @@ async function loadAll() {
       $("status"),
       error.message
     );
-
   }
 
 
-  /* TASKS */
+  /* =========================
+     TASKS
+  ========================= */
 
   try {
 
-    const data =
-      await api("/api/admin/tasks");
+    const data = await api(
+      "/api/admin/tasks"
+    );
 
+    const tasks = Array.isArray(data)
+      ? data
+      : [];
 
     $("tasks").innerHTML =
-      (data.tasks || [])
-        .map(task => `
+      tasks.map(task => `
+        <div class="item">
 
-          <div class="row">
+          <b>${escapeHTML(task.title)}</b>
 
-            <span>
+          <p>
+            ${escapeHTML(task.description || "")}
+          </p>
 
-              <b>
-                ${escapeHTML(task.title)}
-              </b>
+          <strong>
+            Reward: ৳${task.reward}
+          </strong>
 
-              <small>
-                ${escapeHTML(
-                  task.description || ""
-                )}
-              </small>
+        </div>
+      `).join("") ||
 
-            </span>
-
-            <b>
-              ৳${Number(
-                task.reward || 0
-              ).toFixed(2)}
-            </b>
-
-          </div>
-
-        `)
-        .join("")
-        ||
-        '<p class="muted">No tasks yet.</p>';
+      '<p class="muted">No tasks yet.</p>';
 
   } catch (error) {
 
-    $("tasks").textContent =
-      error.message;
-
+    $("tasks").innerHTML =
+      `<p class="error">${escapeHTML(error.message)}</p>`;
   }
 
 
-  /* USERS */
+  /* =========================
+     USERS
+  ========================= */
 
   try {
 
-    const data =
-      await api("/api/admin/users");
+    const data = await api(
+      "/api/admin/users"
+    );
 
+    const users = Array.isArray(data)
+      ? data
+      : [];
 
     $("users").innerHTML =
-      (data.users || [])
-        .map(user => `
+      users.map(user => `
+        <div class="item">
 
-          <div class="row">
+          <b>
+            ${escapeHTML(user.username)}
+          </b>
 
-            <span>
+          <p>
+            Mobile:
+            ${escapeHTML(user.mobile || "-")}
+          </p>
 
-              <b>
-                ${escapeHTML(
-                  user.username
-                )}
-              </b>
+          <p>
+            Email:
+            ${escapeHTML(user.email || "-")}
+          </p>
 
-              <small>
-                ${escapeHTML(
-                  user.mobile || ""
-                )}
-                ·
-                ${escapeHTML(
-                  user.email || ""
-                )}
-              </small>
+          <p>
+            Balance:
+            <strong>
+              ৳${user.balance ?? 0}
+            </strong>
+          </p>
 
-            </span>
+          <p>
+            Earned:
+            ৳${user.total_earned ?? 0}
+          </p>
 
-            <b>
-              ৳${Number(
-                user.balance || 0
-              ).toFixed(2)}
-            </b>
+          <p>
+            Referrals:
+            ${user.referrals ?? 0}
+          </p>
 
-          </div>
+        </div>
+      `).join("") ||
 
-        `)
-        .join("")
-        ||
-        '<p class="muted">No users.</p>';
+      '<p class="muted">No users.</p>';
 
   } catch (error) {
 
-    $("users").textContent =
-      error.message;
-
+    $("users").innerHTML =
+      `<p class="error">${escapeHTML(error.message)}</p>`;
   }
 
 
-  /* PROOFS */
+  /* =========================
+     PROOFS
+  ========================= */
 
   try {
 
-    const data =
-      await api("/api/admin/proofs");
+    const data = await api(
+      "/api/admin/proofs"
+    );
 
+    const proofs = Array.isArray(data)
+      ? data
+      : [];
 
     $("proofs").innerHTML =
-      (data.proofs || [])
-        .map(proof => `
+      proofs.map(proof => {
 
-          <div class="row">
+        const status =
+          String(proof.status || "")
+            .toLowerCase();
 
-            <span>
+        const proofValue =
+          proof.proof || "";
 
-              <b>
-                ${escapeHTML(
-                  proof.username || "User"
-                )}
-              </b>
+        let proofHTML = "";
 
-              <small>
-                ${escapeHTML(
-                  proof.task_title || "Task"
-                )}
-                ·
-                ${escapeHTML(
-                  proof.status || "pending"
-                )}
-              </small>
+        if (
+          proofValue.startsWith("http://") ||
+          proofValue.startsWith("https://")
+        ) {
 
-            </span>
+          proofHTML = `
+            <p>
+              Proof:
+              <a
+                href="${escapeAttribute(proofValue)}"
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                Open Proof
+              </a>
+            </p>
+          `;
 
+        } else {
 
-            <span class="actions">
+          proofHTML = `
+            <p>
+              Proof:
+              ${escapeHTML(proofValue)}
+            </p>
+          `;
+        }
 
-              ${
-                proof.status === "pending"
+        return `
+          <div class="item">
 
+            <b>
+              ${escapeHTML(
+                proof.username || "Unknown User"
+              )}
+            </b>
+
+            <p>
+              Task:
+              ${escapeHTML(
+                proof.task_title || "Unknown Task"
+              )}
+            </p>
+
+            <p>
+              Reward:
+              ৳${proof.reward ?? 0}
+            </p>
+
+            ${proofHTML}
+
+            <p>
+              Status:
+              <strong>
+                ${escapeHTML(proof.status || "pending")}
+              </strong>
+            </p>
+
+            ${
+              status === "pending"
                 ? `
-
                   <button
-                    onclick="reviewProof(
-                      ${proof.id},
-                      'approved'
-                    )"
+                    onclick="reviewProof(${proof.id}, 'approved')"
                   >
                     Approve
                   </button>
 
-
                   <button
-                    class="danger"
-                    onclick="reviewProof(
-                      ${proof.id},
-                      'rejected'
-                    )"
+                    onclick="reviewProof(${proof.id}, 'rejected')"
                   >
                     Reject
                   </button>
-
                 `
-
                 : ""
-
-              }
-
-            </span>
+            }
 
           </div>
+        `;
 
-        `)
-        .join("")
-        ||
-        '<p class="muted">No proofs.</p>';
+      }).join("") ||
+
+      '<p class="muted">No proofs.</p>';
 
   } catch (error) {
 
-    $("proofs").textContent =
-      error.message;
-
+    $("proofs").innerHTML =
+      `<p class="error">${escapeHTML(error.message)}</p>`;
   }
 
 
-  /* WITHDRAWALS */
+  /* =========================
+     WITHDRAWALS
+  ========================= */
 
   try {
 
-    const data =
-      await api(
-        "/api/admin/withdrawals"
-      );
+    const data = await api(
+      "/api/admin/withdrawals"
+    );
 
+    const withdrawals =
+      Array.isArray(data)
+        ? data
+        : [];
 
     $("withdrawals").innerHTML =
-      (data.withdrawals || [])
-        .map(withdrawal => `
+      withdrawals.map(withdrawal => {
 
-          <div class="row">
+        const status =
+          String(withdrawal.status || "")
+            .toLowerCase();
 
-            <span>
+        return `
+          <div class="item">
 
-              <b>
+            <b>
+              ${escapeHTML(
+                withdrawal.username || "Unknown User"
+              )}
+            </b>
+
+            <p>
+              Method:
+              ${escapeHTML(
+                withdrawal.method || "-"
+              )}
+            </p>
+
+            <p>
+              Account:
+              ${escapeHTML(
+                withdrawal.account || "-"
+              )}
+            </p>
+
+            <p>
+              Amount:
+              <strong>
+                ৳${withdrawal.amount ?? 0}
+              </strong>
+            </p>
+
+            <p>
+              Status:
+              <strong>
                 ${escapeHTML(
-                  withdrawal.username ||
-                  "User"
+                  withdrawal.status || "pending"
                 )}
-              </b>
+              </strong>
+            </p>
 
-              <small>
-                ${escapeHTML(
-                  withdrawal.method || ""
-                )}
-                ·
-                ${escapeHTML(
-                  withdrawal.account || ""
-                )}
-              </small>
-
-            </span>
-
-
-            <span class="actions">
-
-              <b>
-                ৳${Number(
-                  withdrawal.amount || 0
-                ).toFixed(2)}
-              </b>
-
-
-              ${
-                withdrawal.status === "pending"
-
+            ${
+              status === "pending"
                 ? `
-
                   <button
-                    onclick="reviewWithdrawal(
-                      ${withdrawal.id},
-                      'approved'
-                    )"
+                    onclick="reviewWithdrawal(${withdrawal.id}, 'approved')"
                   >
                     Approve
                   </button>
 
-
                   <button
-                    class="danger"
-                    onclick="reviewWithdrawal(
-                      ${withdrawal.id},
-                      'rejected'
-                    )"
+                    onclick="reviewWithdrawal(${withdrawal.id}, 'rejected')"
                   >
                     Reject
                   </button>
-
                 `
-
                 : ""
-
-              }
-
-            </span>
+            }
 
           </div>
+        `;
 
-        `)
-        .join("")
-        ||
-        '<p class="muted">No withdrawals.</p>';
+      }).join("") ||
+
+      '<p class="muted">No withdrawals.</p>';
 
   } catch (error) {
 
-    $("withdrawals").textContent =
-      error.message;
-
+    $("withdrawals").innerHTML =
+      `<p class="error">${escapeHTML(error.message)}</p>`;
   }
 
 
-  /* TELEGRAM SETTINGS */
+  /* =========================
+     TELEGRAM SETTINGS
+  ========================= */
 
   try {
 
-    const data =
-      await api(
-        "/api/admin/settings"
-      );
-
+    const data = await api(
+      "/api/admin/settings"
+    );
 
     $("tgSupport").value =
-      data.telegram_support_url || "";
-
+      data.telegramSupportUrl || "";
 
     $("tgGroup").value =
-      data.telegram_group_url || "";
+      data.telegramGroupUrl || "";
 
   } catch (error) {
 
-    // Settings unavailable yet.
+    console.log(
+      "Settings load error:",
+      error.message
+    );
   }
-
 }
 
 
+/* =========================
+   CREATE TASK
+========================= */
+
 async function createTask() {
+
+  const title =
+    $("taskTitle").value.trim();
+
+  const description =
+    $("taskDesc").value.trim();
+
+  const reward =
+    Number($("taskReward").value);
+
+  if (!title) {
+    msg(
+      $("taskMsg"),
+      "Task title দিন।"
+    );
+    return;
+  }
+
+  if (!description) {
+    msg(
+      $("taskMsg"),
+      "Task description দিন।"
+    );
+    return;
+  }
+
+  if (!reward || reward <= 0) {
+    msg(
+      $("taskMsg"),
+      "Valid reward amount দিন।"
+    );
+    return;
+  }
 
   try {
 
@@ -451,43 +518,24 @@ async function createTask() {
         method: "POST",
 
         body: JSON.stringify({
-
-          title:
-            $("taskTitle")
-              .value
-              .trim(),
-
-          description:
-            $("taskDesc")
-              .value
-              .trim(),
-
-          reward:
-            Number(
-              $("taskReward").value
-            )
-
+          title,
+          description,
+          reward
         })
-
       }
     );
 
-
     msg(
       $("taskMsg"),
-      "Task created.",
+      "Task created successfully.",
       true
     );
 
-
     $("taskTitle").value = "";
-
     $("taskDesc").value = "";
-
     $("taskReward").value = "";
 
-
-    loadAll();
+    await loadAll();
 
   } catch (error) {
 
@@ -495,11 +543,13 @@ async function createTask() {
       $("taskMsg"),
       error.message
     );
-
   }
-
 }
 
+
+/* =========================
+   TELEGRAM SETTINGS
+========================= */
 
 async function saveTelegram() {
 
@@ -511,22 +561,14 @@ async function saveTelegram() {
         method: "PUT",
 
         body: JSON.stringify({
+          telegramSupportUrl:
+            $("tgSupport").value.trim(),
 
-          telegram_support_url:
-            $("tgSupport")
-              .value
-              .trim(),
-
-          telegram_group_url:
-            $("tgGroup")
-              .value
-              .trim()
-
+          telegramGroupUrl:
+            $("tgGroup").value.trim()
         })
-
       }
     );
-
 
     msg(
       $("tgMsg"),
@@ -540,29 +582,27 @@ async function saveTelegram() {
       $("tgMsg"),
       error.message
     );
-
   }
-
 }
 
+
+/* =========================
+   REVIEW PROOF
+========================= */
 
 async function reviewProof(
   id,
   status
 ) {
 
-  if (
-    !confirm(
-      status === "approved"
-        ? "Approve this proof?"
-        : "Reject this proof?"
-    )
-  ) {
+  const question =
+    status === "approved"
+      ? "Approve this proof?"
+      : "Reject this proof?";
 
+  if (!confirm(question)) {
     return;
-
   }
-
 
   try {
 
@@ -574,39 +614,35 @@ async function reviewProof(
         body: JSON.stringify({
           status
         })
-
       }
     );
 
-
-    loadAll();
+    await loadAll();
 
   } catch (error) {
 
     alert(error.message);
-
   }
-
 }
 
+
+/* =========================
+   REVIEW WITHDRAWAL
+========================= */
 
 async function reviewWithdrawal(
   id,
   status
 ) {
 
-  if (
-    !confirm(
-      status === "approved"
-        ? "Approve this withdrawal?"
-        : "Reject this withdrawal?"
-    )
-  ) {
+  const question =
+    status === "approved"
+      ? "Approve this withdrawal?"
+      : "Reject this withdrawal?";
 
+  if (!confirm(question)) {
     return;
-
   }
-
 
   try {
 
@@ -618,54 +654,56 @@ async function reviewWithdrawal(
         body: JSON.stringify({
           status
         })
-
       }
     );
 
-
-    loadAll();
+    await loadAll();
 
   } catch (error) {
 
     alert(error.message);
-
   }
-
 }
 
+
+/* =========================
+   SECURITY / HTML ESCAPE
+========================= */
 
 function escapeHTML(value) {
 
-  return String(
-    value ?? ""
-  ).replace(
+  return String(value ?? "").replace(
     /[&<>"']/g,
 
     character => ({
-
       "&": "&amp;",
-
       "<": "&lt;",
-
       ">": "&gt;",
-
       '"': "&quot;",
-
       "'": "&#39;"
-
     }[character])
-
   );
-
 }
 
 
-$("loginBtn").onclick = login;
+function escapeAttribute(value) {
 
+  return String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/"/g, "&quot;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+}
+
+
+/* =========================
+   BUTTONS
+========================= */
+
+$("loginBtn").onclick = login;
 
 $("createTaskBtn").onclick =
   createTask;
-
 
 $("saveTgBtn").onclick =
   saveTelegram;
@@ -680,12 +718,13 @@ $("logoutBtn").onclick = () => {
   );
 
   showLogin();
-
 };
 
 
+/* =========================
+   AUTO LOGIN
+========================= */
+
 if (token) {
-
   showPanel();
-
-                  }
+}
