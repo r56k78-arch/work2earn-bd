@@ -3,13 +3,25 @@ const helmet = require("helmet");
 const rateLimit = require("express-rate-limit");
 const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
-const Database = require("better-sqlite3");
+const { Pool } = require("pg");
 
 const app = express();
 
-const db = new Database("work2earn.db");
-
 const PORT = process.env.PORT || 3000;
+
+const DATABASE_URL = process.env.DATABASE_URL;
+
+if (!DATABASE_URL) {
+  console.error("DATABASE_URL is missing.");
+  process.exit(1);
+}
+
+const pool = new Pool({
+  connectionString: DATABASE_URL,
+  max: 5,
+  idleTimeoutMillis: 30000,
+  connectionTimeoutMillis: 10000
+});
 
 const JWT_SECRET =
   process.env.JWT_SECRET || "CHANGE_THIS_SECRET_BEFORE_DEPLOYING";
@@ -21,16 +33,12 @@ const ADMIN_PASSWORD =
   process.env.ADMIN_PASSWORD || "CHANGE_ADMIN_PASSWORD";
 
 const TELEGRAM_SUPPORT_URL =
-  process.env.TELEGRAM_SUPPORT_URL || "https://t.me/arafatxyz0";
+  process.env.TELEGRAM_SUPPORT_URL ||
+  "https://t.me/arafatxyz0";
 
 const TELEGRAM_GROUP_URL =
   process.env.TELEGRAM_GROUP_URL ||
   "https://t.me/+zlVgZjLxRjtlODM1";
-
-
-/* =========================
-   APP SETTINGS
-========================= */
 
 app.use(
   helmet({
@@ -41,11 +49,6 @@ app.use(
 app.use(express.json({ limit: "200kb" }));
 
 app.use(express.static("public"));
-
-
-/* =========================
-   RATE LIMIT
-========================= */
 
 const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
@@ -58,86 +61,87 @@ app.use("/api/admin/login", authLimiter);
 
 
 /* =========================
-   DATABASE
+   DATABASE HELPERS
 ========================= */
 
-db.exec(`
-CREATE TABLE IF NOT EXISTS users (
- id INTEGER PRIMARY KEY AUTOINCREMENT,
- username TEXT UNIQUE NOT NULL,
- mobile TEXT UNIQUE NOT NULL,
- email TEXT UNIQUE NOT NULL,
- password_hash TEXT NOT NULL,
- referral_code TEXT UNIQUE NOT NULL,
- referred_by INTEGER,
- balance INTEGER NOT NULL DEFAULT 0,
- total_earned INTEGER NOT NULL DEFAULT 0,
- total_withdrawn INTEGER NOT NULL DEFAULT 0,
- completed_tasks INTEGER NOT NULL DEFAULT 0,
- referral_bonus_paid INTEGER NOT NULL DEFAULT 0,
- created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-);
-
-CREATE TABLE IF NOT EXISTS tasks (
- id INTEGER PRIMARY KEY AUTOINCREMENT,
- title TEXT NOT NULL,
- description TEXT NOT NULL,
- reward INTEGER NOT NULL,
- active INTEGER NOT NULL DEFAULT 1,
- created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-);
-
-CREATE TABLE IF NOT EXISTS submissions (
- id INTEGER PRIMARY KEY AUTOINCREMENT,
- user_id INTEGER NOT NULL,
- task_id INTEGER NOT NULL,
- proof TEXT NOT NULL,
- status TEXT NOT NULL DEFAULT 'pending',
- created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-);
-
-CREATE TABLE IF NOT EXISTS withdrawals (
- id INTEGER PRIMARY KEY AUTOINCREMENT,
- user_id INTEGER NOT NULL,
- method TEXT NOT NULL,
- account TEXT NOT NULL,
- amount INTEGER NOT NULL,
- status TEXT NOT NULL DEFAULT 'pending',
- created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-);
-
-CREATE TABLE IF NOT EXISTS settings (
- key TEXT PRIMARY KEY,
- value TEXT NOT NULL
-);
-`);
-
-
-/* =========================
-   DEFAULT SETTINGS
-========================= */
-
-function setDefaultSetting(key, value) {
-  const exists = db
-    .prepare("SELECT key FROM settings WHERE key=?")
-    .get(key);
-
-  if (!exists) {
-    db.prepare(
-      "INSERT INTO settings(key,value) VALUES(?,?)"
-    ).run(key, value);
-  }
+async function query(text, params = []) {
+  return pool.query(text, params);
 }
 
-setDefaultSetting(
-  "telegramSupportUrl",
-  TELEGRAM_SUPPORT_URL
-);
+async function initDatabase() {
+  await query(`
+    CREATE TABLE IF NOT EXISTS users (
+      id SERIAL PRIMARY KEY,
+      username TEXT UNIQUE NOT NULL,
+      mobile TEXT UNIQUE NOT NULL,
+      email TEXT UNIQUE NOT NULL,
+      password_hash TEXT NOT NULL,
+      referral_code TEXT UNIQUE NOT NULL,
+      referred_by INTEGER REFERENCES users(id),
+      balance INTEGER NOT NULL DEFAULT 0,
+      total_earned INTEGER NOT NULL DEFAULT 0,
+      total_withdrawn INTEGER NOT NULL DEFAULT 0,
+      completed_tasks INTEGER NOT NULL DEFAULT 0,
+      referral_bonus_paid BOOLEAN NOT NULL DEFAULT FALSE,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
 
-setDefaultSetting(
-  "telegramGroupUrl",
-  TELEGRAM_GROUP_URL
-);
+    CREATE TABLE IF NOT EXISTS tasks (
+      id SERIAL PRIMARY KEY,
+      title TEXT NOT NULL,
+      description TEXT NOT NULL,
+      reward INTEGER NOT NULL,
+      active BOOLEAN NOT NULL DEFAULT TRUE,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+
+    CREATE TABLE IF NOT EXISTS submissions (
+      id SERIAL PRIMARY KEY,
+      user_id INTEGER NOT NULL REFERENCES users(id),
+      task_id INTEGER NOT NULL REFERENCES tasks(id),
+      proof TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'pending',
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+
+    CREATE TABLE IF NOT EXISTS withdrawals (
+      id SERIAL PRIMARY KEY,
+      user_id INTEGER NOT NULL REFERENCES users(id),
+      method TEXT NOT NULL,
+      account TEXT NOT NULL,
+      amount INTEGER NOT NULL,
+      status TEXT NOT NULL DEFAULT 'pending',
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+
+    CREATE TABLE IF NOT EXISTS settings (
+      key TEXT PRIMARY KEY,
+      value TEXT NOT NULL
+    );
+
+    CREATE UNIQUE INDEX IF NOT EXISTS unique_active_submission
+    ON submissions(user_id, task_id)
+    WHERE status IN ('pending', 'approved');
+  `);
+
+  await query(
+    `
+    INSERT INTO settings(key, value)
+    VALUES ($1, $2)
+    ON CONFLICT(key) DO NOTHING
+    `,
+    ["telegramSupportUrl", TELEGRAM_SUPPORT_URL]
+  );
+
+  await query(
+    `
+    INSERT INTO settings(key, value)
+    VALUES ($1, $2)
+    ON CONFLICT(key) DO NOTHING
+    `,
+    ["telegramGroupUrl", TELEGRAM_GROUP_URL]
+  );
+}
 
 
 /* =========================
@@ -157,7 +161,6 @@ function tokenFor(user) {
     }
   );
 }
-
 
 function adminToken() {
   return jwt.sign(
@@ -236,7 +239,7 @@ function adminAuth(req, res, next) {
 ========================= */
 
 function makeReferralCode(username) {
-  const base = username
+  const base = String(username)
     .toUpperCase()
     .replace(/[^A-Z0-9]/g, "")
     .slice(0, 8);
@@ -254,90 +257,101 @@ function makeReferralCode(username) {
    REGISTER
 ========================= */
 
-app.post("/api/register", (req, res) => {
-  const {
-    username,
-    mobile,
-    email,
-    password,
-    confirmPassword,
-    referralCode
-  } = req.body;
-
-  if (
-    !username ||
-    !mobile ||
-    !email ||
-    !password ||
-    !confirmPassword
-  ) {
-    return res.status(400).json({
-      error: "সব তথ্য পূরণ করুন"
-    });
-  }
-
-  if (password !== confirmPassword) {
-    return res.status(400).json({
-      error: "Password মিলছে না"
-    });
-  }
-
-  if (password.length < 8) {
-    return res.status(400).json({
-      error: "Password কমপক্ষে 8 অক্ষরের হতে হবে"
-    });
-  }
-
-  const referred = referralCode
-    ? db
-        .prepare(
-          "SELECT id FROM users WHERE referral_code=?"
-        )
-        .get(String(referralCode).trim())
-    : null;
-
+app.post("/api/register", async (req, res) => {
   try {
-    const hash = bcrypt.hashSync(password, 12);
+    const {
+      username,
+      mobile,
+      email,
+      password,
+      confirmPassword,
+      referralCode
+    } = req.body;
 
-    let code = makeReferralCode(username);
-
-    while (
-      db
-        .prepare(
-          "SELECT id FROM users WHERE referral_code=?"
-        )
-        .get(code)
+    if (
+      !username ||
+      !mobile ||
+      !email ||
+      !password ||
+      !confirmPassword
     ) {
-      code = makeReferralCode(username);
+      return res.status(400).json({
+        error: "সব তথ্য পূরণ করুন"
+      });
     }
 
-    const info = db
-      .prepare(
-        `
-        INSERT INTO users
-        (
-          username,
-          mobile,
-          email,
-          password_hash,
-          referral_code,
-          referred_by
-        )
-        VALUES (?,?,?,?,?,?)
-        `
-      )
-      .run(
-        String(username).trim(),
-        String(mobile).trim(),
-        String(email).trim().toLowerCase(),
-        hash,
-        code,
-        referred ? referred.id : null
+    if (password !== confirmPassword) {
+      return res.status(400).json({
+        error: "Password মিলছে না"
+      });
+    }
+
+    if (password.length < 8) {
+      return res.status(400).json({
+        error: "Password কমপক্ষে 8 অক্ষরের হতে হবে"
+      });
+    }
+
+    const cleanUsername = String(username).trim();
+    const cleanMobile = String(mobile).trim();
+    const cleanEmail = String(email).trim().toLowerCase();
+    const cleanReferral = referralCode
+      ? String(referralCode).trim()
+      : "";
+
+    let referredId = null;
+
+    if (cleanReferral) {
+      const referred = await query(
+        "SELECT id FROM users WHERE referral_code=$1",
+        [cleanReferral]
       );
 
-    const user = db
-      .prepare("SELECT * FROM users WHERE id=?")
-      .get(info.lastInsertRowid);
+      if (referred.rows.length > 0) {
+        referredId = referred.rows[0].id;
+      }
+    }
+
+    const hash = await bcrypt.hash(password, 12);
+
+    let code = makeReferralCode(cleanUsername);
+
+    while (true) {
+      const existingCode = await query(
+        "SELECT id FROM users WHERE referral_code=$1",
+        [code]
+      );
+
+      if (existingCode.rows.length === 0) break;
+
+      code = makeReferralCode(cleanUsername);
+    }
+
+    const result = await query(
+      `
+      INSERT INTO users
+      (
+        username,
+        mobile,
+        email,
+        password_hash,
+        referral_code,
+        referred_by
+      )
+      VALUES ($1,$2,$3,$4,$5,$6)
+      RETURNING *
+      `,
+      [
+        cleanUsername,
+        cleanMobile,
+        cleanEmail,
+        hash,
+        code,
+        referredId
+      ]
+    );
+
+    const user = result.rows[0];
 
     res.json({
       token: tokenFor(user),
@@ -347,6 +361,8 @@ app.post("/api/register", (req, res) => {
       }
     });
   } catch (e) {
+    console.error(e);
+
     res.status(409).json({
       error:
         "Username, mobile বা email আগে থেকেই ব্যবহার করা হয়েছে"
@@ -359,48 +375,58 @@ app.post("/api/register", (req, res) => {
    LOGIN
 ========================= */
 
-app.post("/api/login", (req, res) => {
-  const { login, password } = req.body;
+app.post("/api/login", async (req, res) => {
+  try {
+    const { login, password } = req.body;
 
-  if (!login || !password) {
-    return res.status(400).json({
-      error: "Login তথ্য দিন"
-    });
-  }
+    if (!login || !password) {
+      return res.status(400).json({
+        error: "Login তথ্য দিন"
+      });
+    }
 
-  const loginText = String(login).trim();
+    const loginText = String(login).trim();
 
-  const user = db
-    .prepare(
+    const result = await query(
       `
       SELECT *
       FROM users
-      WHERE username=?
-         OR email=?
-         OR mobile=?
-      `
-    )
-    .get(
-      loginText,
-      loginText.toLowerCase(),
-      loginText
+      WHERE username=$1
+         OR email=$2
+         OR mobile=$3
+      LIMIT 1
+      `,
+      [
+        loginText,
+        loginText.toLowerCase(),
+        loginText
+      ]
     );
 
-  if (
-    !user ||
-    !bcrypt.compareSync(
-      password,
-      user.password_hash
-    )
-  ) {
-    return res.status(401).json({
-      error: "Login তথ্য সঠিক নয়"
+    const user = result.rows[0];
+
+    if (
+      !user ||
+      !(await bcrypt.compare(
+        password,
+        user.password_hash
+      ))
+    ) {
+      return res.status(401).json({
+        error: "Login তথ্য সঠিক নয়"
+      });
+    }
+
+    res.json({
+      token: tokenFor(user)
+    });
+  } catch (e) {
+    console.error(e);
+
+    res.status(500).json({
+      error: "Server error"
     });
   }
-
-  res.json({
-    token: tokenFor(user)
-  });
 });
 
 
@@ -408,9 +434,9 @@ app.post("/api/login", (req, res) => {
    ME
 ========================= */
 
-app.get("/api/me", auth, (req, res) => {
-  const u = db
-    .prepare(
+app.get("/api/me", auth, async (req, res) => {
+  try {
+    const userResult = await query(
       `
       SELECT
         username,
@@ -422,34 +448,48 @@ app.get("/api/me", auth, (req, res) => {
         total_withdrawn,
         completed_tasks
       FROM users
-      WHERE id=?
-      `
-    )
-    .get(req.user.id);
+      WHERE id=$1
+      `,
+      [req.user.id]
+    );
 
-  const referrals = db
-    .prepare(
-      "SELECT COUNT(*) n FROM users WHERE referred_by=?"
-    )
-    .get(req.user.id).n;
+    const u = userResult.rows[0];
 
-  const pendingWithdrawal = db
-    .prepare(
+    if (!u) {
+      return res.status(404).json({
+        error: "User পাওয়া যায়নি"
+      });
+    }
+
+    const referralsResult = await query(
+      "SELECT COUNT(*)::int AS n FROM users WHERE referred_by=$1",
+      [req.user.id]
+    );
+
+    const pendingResult = await query(
       `
-      SELECT COALESCE(SUM(amount),0) amount
+      SELECT COALESCE(SUM(amount),0)::int AS amount
       FROM withdrawals
-      WHERE user_id=?
+      WHERE user_id=$1
       AND status='pending'
-      `
-    )
-    .get(req.user.id).amount;
+      `,
+      [req.user.id]
+    );
 
-  res.json({
-    ...u,
-    referrals,
-    pendingWithdrawal,
-    minWithdrawal: 50
-  });
+    res.json({
+      ...u,
+      referrals: referralsResult.rows[0].n,
+      pendingWithdrawal:
+        pendingResult.rows[0].amount,
+      minWithdrawal: 50
+    });
+  } catch (e) {
+    console.error(e);
+
+    res.status(500).json({
+      error: "Server error"
+    });
+  }
 });
 
 
@@ -457,9 +497,9 @@ app.get("/api/me", auth, (req, res) => {
    TASK LIST
 ========================= */
 
-app.get("/api/tasks", auth, (req, res) => {
-  const tasks = db
-    .prepare(
+app.get("/api/tasks", auth, async (req, res) => {
+  try {
+    const result = await query(
       `
       SELECT
         id,
@@ -467,13 +507,19 @@ app.get("/api/tasks", auth, (req, res) => {
         description,
         reward
       FROM tasks
-      WHERE active=1
+      WHERE active=TRUE
       ORDER BY id DESC
       `
-    )
-    .all();
+    );
 
-  res.json(tasks);
+    res.json(result.rows);
+  } catch (e) {
+    console.error(e);
+
+    res.status(500).json({
+      error: "Tasks load করা যায়নি"
+    });
+  }
 });
 
 
@@ -481,155 +527,187 @@ app.get("/api/tasks", auth, (req, res) => {
    SUBMIT TASK
 ========================= */
 
-app.post("/api/tasks/:id/submit", auth, (req, res) => {
-  const task = db
-    .prepare(
-      `
-      SELECT *
-      FROM tasks
-      WHERE id=?
-      AND active=1
-      `
-    )
-    .get(req.params.id);
+app.post(
+  "/api/tasks/:id/submit",
+  auth,
+  async (req, res) => {
+    try {
+      const taskResult = await query(
+        `
+        SELECT *
+        FROM tasks
+        WHERE id=$1
+        AND active=TRUE
+        `,
+        [req.params.id]
+      );
 
-  if (!task) {
-    return res.status(404).json({
-      error: "Task পাওয়া যায়নি"
-    });
+      const task = taskResult.rows[0];
+
+      if (!task) {
+        return res.status(404).json({
+          error: "Task পাওয়া যায়নি"
+        });
+      }
+
+      const existing = await query(
+        `
+        SELECT id
+        FROM submissions
+        WHERE user_id=$1
+        AND task_id=$2
+        AND status IN ('pending','approved')
+        LIMIT 1
+        `,
+        [req.user.id, task.id]
+      );
+
+      if (existing.rows.length > 0) {
+        return res.status(400).json({
+          error: "এই task আগে submit করা হয়েছে"
+        });
+      }
+
+      const proof = String(
+        req.body.proof || ""
+      ).trim();
+
+      if (!proof) {
+        return res.status(400).json({
+          error: "Proof দিন"
+        });
+      }
+
+      await query(
+        `
+        INSERT INTO submissions
+        (user_id, task_id, proof)
+        VALUES ($1,$2,$3)
+        `,
+        [
+          req.user.id,
+          task.id,
+          proof
+        ]
+      );
+
+      res.json({
+        ok: true
+      });
+    } catch (e) {
+      console.error(e);
+
+      res.status(500).json({
+        error: "Proof submit করা যায়নি"
+      });
+    }
   }
-
-  const existing = db
-    .prepare(
-      `
-      SELECT id
-      FROM submissions
-      WHERE user_id=?
-      AND task_id=?
-      AND status IN ('pending','approved')
-      `
-    )
-    .get(
-      req.user.id,
-      task.id
-    );
-
-  if (existing) {
-    return res.status(400).json({
-      error: "এই task আগে submit করা হয়েছে"
-    });
-  }
-
-  const proof = String(
-    req.body.proof || ""
-  ).trim();
-
-  if (!proof) {
-    return res.status(400).json({
-      error: "Proof দিন"
-    });
-  }
-
-  db.prepare(
-    `
-    INSERT INTO submissions
-    (user_id,task_id,proof)
-    VALUES (?,?,?)
-    `
-  ).run(
-    req.user.id,
-    task.id,
-    proof
-  );
-
-  res.json({
-    ok: true
-  });
-});
+);
 
 
 /* =========================
    WITHDRAW
 ========================= */
 
-app.post("/api/withdraw", auth, (req, res) => {
-  const method = String(
-    req.body.method || ""
-  ).trim();
+app.post("/api/withdraw", auth, async (req, res) => {
+  const client = await pool.connect();
 
-  const account = String(
-    req.body.account || ""
-  ).trim();
+  try {
+    const method = String(
+      req.body.method || ""
+    ).trim();
 
-  const amount = Number(req.body.amount);
+    const account = String(
+      req.body.account || ""
+    ).trim();
 
-  if (
-    !["bKash", "Nagad", "Binance"].includes(method)
-  ) {
-    return res.status(400).json({
-      error: "Payment method সঠিক নয়"
-    });
-  }
+    const amount = Number(req.body.amount);
 
-  if (!account) {
-    return res.status(400).json({
-      error: "Payment account দিন"
-    });
-  }
+    if (
+      !["bKash", "Nagad", "Binance"].includes(method)
+    ) {
+      return res.status(400).json({
+        error: "Payment method সঠিক নয়"
+      });
+    }
 
-  if (
-    !Number.isInteger(amount) ||
-    amount < 50
-  ) {
-    return res.status(400).json({
-      error: "Minimum withdrawal ৳50"
-    });
-  }
+    if (!account) {
+      return res.status(400).json({
+        error: "Payment account দিন"
+      });
+    }
 
-  const u = db
-    .prepare(
-      "SELECT balance FROM users WHERE id=?"
-    )
-    .get(req.user.id);
+    if (
+      !Number.isInteger(amount) ||
+      amount < 50
+    ) {
+      return res.status(400).json({
+        error: "Minimum withdrawal ৳50"
+      });
+    }
 
-  if (!u || u.balance < amount) {
-    return res.status(400).json({
-      error: "পর্যাপ্ত balance নেই"
-    });
-  }
+    await client.query("BEGIN");
 
-  const tx = db.transaction(() => {
-    db.prepare(
+    const userResult = await client.query(
+      `
+      SELECT balance
+      FROM users
+      WHERE id=$1
+      FOR UPDATE
+      `,
+      [req.user.id]
+    );
+
+    const user = userResult.rows[0];
+
+    if (!user || user.balance < amount) {
+      await client.query("ROLLBACK");
+
+      return res.status(400).json({
+        error: "পর্যাপ্ত balance নেই"
+      });
+    }
+
+    await client.query(
       `
       UPDATE users
-      SET balance=balance-?
-      WHERE id=?
-      `
-    ).run(
-      amount,
-      req.user.id
+      SET balance=balance-$1
+      WHERE id=$2
+      `,
+      [amount, req.user.id]
     );
 
-    db.prepare(
+    await client.query(
       `
       INSERT INTO withdrawals
-      (user_id,method,account,amount)
-      VALUES (?,?,?,?)
-      `
-    ).run(
-      req.user.id,
-      method,
-      account,
-      amount
+      (user_id, method, account, amount)
+      VALUES ($1,$2,$3,$4)
+      `,
+      [
+        req.user.id,
+        method,
+        account,
+        amount
+      ]
     );
-  });
 
-  tx();
+    await client.query("COMMIT");
 
-  res.json({
-    ok: true,
-    message: "Withdrawal request submitted"
-  });
+    res.json({
+      ok: true,
+      message: "Withdrawal request submitted"
+    });
+  } catch (e) {
+    await client.query("ROLLBACK");
+
+    console.error(e);
+
+    res.status(500).json({
+      error: "Withdrawal request failed"
+    });
+  } finally {
+    client.release();
+  }
 });
 
 
@@ -671,75 +749,74 @@ app.post("/api/admin/login", (req, res) => {
 app.get(
   "/api/admin/stats",
   adminAuth,
-  (req, res) => {
-    const users = db
-      .prepare(
-        "SELECT COUNT(*) n FROM users"
-      )
-      .get().n;
+  async (req, res) => {
+    try {
+      const users = await query(
+        "SELECT COUNT(*)::int AS n FROM users"
+      );
 
-    const tasks = db
-      .prepare(
-        "SELECT COUNT(*) n FROM tasks WHERE active=1"
-      )
-      .get().n;
+      const tasks = await query(
+        "SELECT COUNT(*)::int AS n FROM tasks WHERE active=TRUE"
+      );
 
-    const pendingProofs = db
-      .prepare(
+      const pendingProofs = await query(
         `
-        SELECT COUNT(*) n
+        SELECT COUNT(*)::int AS n
         FROM submissions
         WHERE status='pending'
         `
-      )
-      .get().n;
+      );
 
-    const pendingWithdrawals = db
-      .prepare(
+      const pendingWithdrawals = await query(
         `
-        SELECT COUNT(*) n
+        SELECT COUNT(*)::int AS n
         FROM withdrawals
         WHERE status='pending'
         `
-      )
-      .get().n;
+      );
 
-    const totalBalance = db
-      .prepare(
+      const totalBalance = await query(
         `
-        SELECT COALESCE(SUM(balance),0) amount
+        SELECT COALESCE(SUM(balance),0)::int AS amount
         FROM users
         `
-      )
-      .get().amount;
+      );
 
-    const totalEarned = db
-      .prepare(
+      const totalEarned = await query(
         `
-        SELECT COALESCE(SUM(total_earned),0) amount
+        SELECT COALESCE(SUM(total_earned),0)::int AS amount
         FROM users
         `
-      )
-      .get().amount;
+      );
 
-    const totalWithdrawn = db
-      .prepare(
+      const totalWithdrawn = await query(
         `
-        SELECT COALESCE(SUM(total_withdrawn),0) amount
+        SELECT COALESCE(SUM(total_withdrawn),0)::int AS amount
         FROM users
         `
-      )
-      .get().amount;
+      );
 
-    res.json({
-      users,
-      tasks,
-      pendingProofs,
-      pendingWithdrawals,
-      totalBalance,
-      totalEarned,
-      totalWithdrawn
-    });
+      res.json({
+        users: users.rows[0].n,
+        tasks: tasks.rows[0].n,
+        pendingProofs:
+          pendingProofs.rows[0].n,
+        pendingWithdrawals:
+          pendingWithdrawals.rows[0].n,
+        totalBalance:
+          totalBalance.rows[0].amount,
+        totalEarned:
+          totalEarned.rows[0].amount,
+        totalWithdrawn:
+          totalWithdrawn.rows[0].amount
+      });
+    } catch (e) {
+      console.error(e);
+
+      res.status(500).json({
+        error: "Stats load করা যায়নি"
+      });
+    }
   }
 );
 
@@ -751,9 +828,9 @@ app.get(
 app.get(
   "/api/admin/users",
   adminAuth,
-  (req, res) => {
-    const users = db
-      .prepare(
+  async (req, res) => {
+    try {
+      const result = await query(
         `
         SELECT
           id,
@@ -770,10 +847,16 @@ app.get(
         FROM users
         ORDER BY id DESC
         `
-      )
-      .all();
+      );
 
-    res.json(users);
+      res.json(result.rows);
+    } catch (e) {
+      console.error(e);
+
+      res.status(500).json({
+        error: "Users load করা যায়নি"
+      });
+    }
   }
 );
 
@@ -785,18 +868,24 @@ app.get(
 app.get(
   "/api/admin/tasks",
   adminAuth,
-  (req, res) => {
-    const tasks = db
-      .prepare(
+  async (req, res) => {
+    try {
+      const result = await query(
         `
         SELECT *
         FROM tasks
         ORDER BY id DESC
         `
-      )
-      .all();
+      );
 
-    res.json(tasks);
+      res.json(result.rows);
+    } catch (e) {
+      console.error(e);
+
+      res.status(500).json({
+        error: "Tasks load করা যায়নি"
+      });
+    }
   }
 );
 
@@ -804,52 +893,60 @@ app.get(
 app.post(
   "/api/admin/tasks",
   adminAuth,
-  (req, res) => {
-    const title = String(
-      req.body.title || ""
-    ).trim();
+  async (req, res) => {
+    try {
+      const title = String(
+        req.body.title || ""
+      ).trim();
 
-    const description = String(
-      req.body.description || ""
-    ).trim();
+      const description = String(
+        req.body.description || ""
+      ).trim();
 
-    const reward = Number(
-      req.body.reward
-    );
-
-    if (!title || !description) {
-      return res.status(400).json({
-        error: "Title এবং description দিন"
-      });
-    }
-
-    if (
-      !Number.isInteger(reward) ||
-      reward <= 0
-    ) {
-      return res.status(400).json({
-        error: "Reward সঠিক নয়"
-      });
-    }
-
-    const info = db
-      .prepare(
-        `
-        INSERT INTO tasks
-        (title,description,reward)
-        VALUES (?,?,?)
-        `
-      )
-      .run(
-        title,
-        description,
-        reward
+      const reward = Number(
+        req.body.reward
       );
 
-    res.json({
-      ok: true,
-      id: info.lastInsertRowid
-    });
+      if (!title || !description) {
+        return res.status(400).json({
+          error: "Title এবং description দিন"
+        });
+      }
+
+      if (
+        !Number.isInteger(reward) ||
+        reward <= 0
+      ) {
+        return res.status(400).json({
+          error: "Reward সঠিক নয়"
+        });
+      }
+
+      const result = await query(
+        `
+        INSERT INTO tasks
+        (title, description, reward)
+        VALUES ($1,$2,$3)
+        RETURNING id
+        `,
+        [
+          title,
+          description,
+          reward
+        ]
+      );
+
+      res.json({
+        ok: true,
+        id: result.rows[0].id
+      });
+    } catch (e) {
+      console.error(e);
+
+      res.status(500).json({
+        error: "Task তৈরি করা যায়নি"
+      });
+    }
   }
 );
 
@@ -861,9 +958,9 @@ app.post(
 app.get(
   "/api/admin/proofs",
   adminAuth,
-  (req, res) => {
-    const proofs = db
-      .prepare(
+  async (req, res) => {
+    try {
+      const result = await query(
         `
         SELECT
           s.id,
@@ -883,10 +980,16 @@ app.get(
           ON t.id=s.task_id
         ORDER BY s.id DESC
         `
-      )
-      .all();
+      );
 
-    res.json(proofs);
+      res.json(result.rows);
+    } catch (e) {
+      console.error(e);
+
+      res.status(500).json({
+        error: "Proofs load করা যায়নি"
+      });
+    }
   }
 );
 
@@ -898,23 +1001,28 @@ app.get(
 app.patch(
   "/api/admin/proofs/:id",
   adminAuth,
-  (req, res) => {
-    const action = String(
-      req.body.status ||
-      req.body.action ||
-      ""
-    ).toLowerCase();
+  async (req, res) => {
+    const client = await pool.connect();
 
-    if (
-      !["approved", "rejected"].includes(action)
-    ) {
-      return res.status(400).json({
-        error: "Status approved অথবা rejected হতে হবে"
-      });
-    }
+    try {
+      const action = String(
+        req.body.status ||
+        req.body.action ||
+        ""
+      ).toLowerCase();
 
-    const submission = db
-      .prepare(
+      if (
+        !["approved", "rejected"].includes(action)
+      ) {
+        return res.status(400).json({
+          error:
+            "Status approved অথবা rejected হতে হবে"
+        });
+      }
+
+      await client.query("BEGIN");
+
+      const submissionResult = await client.query(
         `
         SELECT
           s.*,
@@ -922,107 +1030,128 @@ app.patch(
         FROM submissions s
         JOIN tasks t
           ON t.id=s.task_id
-        WHERE s.id=?
-        `
-      )
-      .get(req.params.id);
+        WHERE s.id=$1
+        FOR UPDATE OF s
+        `,
+        [req.params.id]
+      );
 
-    if (!submission) {
-      return res.status(404).json({
-        error: "Proof পাওয়া যায়নি"
-      });
-    }
+      const submission =
+        submissionResult.rows[0];
 
-    if (submission.status !== "pending") {
-      return res.status(400).json({
-        error: "এই proof ইতিমধ্যে process করা হয়েছে"
-      });
-    }
+      if (!submission) {
+        await client.query("ROLLBACK");
 
-    const tx = db.transaction(() => {
+        return res.status(404).json({
+          error: "Proof পাওয়া যায়নি"
+        });
+      }
+
+      if (submission.status !== "pending") {
+        await client.query("ROLLBACK");
+
+        return res.status(400).json({
+          error:
+            "এই proof ইতিমধ্যে process করা হয়েছে"
+        });
+      }
+
       if (action === "approved") {
-        db.prepare(
+        await client.query(
           `
           UPDATE submissions
           SET status='approved'
-          WHERE id=?
-          `
-        ).run(submission.id);
+          WHERE id=$1
+          `,
+          [submission.id]
+        );
 
-        db.prepare(
+        await client.query(
           `
           UPDATE users
           SET
-            balance=balance+?,
-            total_earned=total_earned+?,
+            balance=balance+$1,
+            total_earned=total_earned+$1,
             completed_tasks=completed_tasks+1
-          WHERE id=?
-          `
-        ).run(
-          submission.reward,
-          submission.reward,
-          submission.user_id
+          WHERE id=$2
+          `,
+          [
+            submission.reward,
+            submission.user_id
+          ]
         );
 
-        const worker = db
-          .prepare(
+        const workerResult =
+          await client.query(
             `
             SELECT
               referred_by,
               completed_tasks,
               referral_bonus_paid
             FROM users
-            WHERE id=?
-            `
-          )
-          .get(submission.user_id);
+            WHERE id=$1
+            FOR UPDATE
+            `,
+            [submission.user_id]
+          );
 
-        /*
-          20 completed tasks হলে referrer
-          একবার ৳20 bonus পাবে।
-        */
+        const worker =
+          workerResult.rows[0];
 
         if (
           worker &&
           worker.completed_tasks >= 20 &&
           worker.referred_by &&
-          worker.referral_bonus_paid === 0
+          worker.referral_bonus_paid === false
         ) {
-          db.prepare(
+          await client.query(
             `
             UPDATE users
             SET
               balance=balance+20,
               total_earned=total_earned+20
-            WHERE id=?
-            `
-          ).run(worker.referred_by);
+            WHERE id=$1
+            `,
+            [worker.referred_by]
+          );
 
-          db.prepare(
+          await client.query(
             `
             UPDATE users
-            SET referral_bonus_paid=1
-            WHERE id=?
-            `
-          ).run(submission.user_id);
+            SET referral_bonus_paid=TRUE
+            WHERE id=$1
+            `,
+            [submission.user_id]
+          );
         }
       } else {
-        db.prepare(
+        await client.query(
           `
           UPDATE submissions
           SET status='rejected'
-          WHERE id=?
-          `
-        ).run(submission.id);
+          WHERE id=$1
+          `,
+          [submission.id]
+        );
       }
-    });
 
-    tx();
+      await client.query("COMMIT");
 
-    res.json({
-      ok: true,
-      status: action
-    });
+      res.json({
+        ok: true,
+        status: action
+      });
+    } catch (e) {
+      await client.query("ROLLBACK");
+
+      console.error(e);
+
+      res.status(500).json({
+        error: "Proof process করা যায়নি"
+      });
+    } finally {
+      client.release();
+    }
   }
 );
 
@@ -1034,9 +1163,9 @@ app.patch(
 app.get(
   "/api/admin/withdrawals",
   adminAuth,
-  (req, res) => {
-    const withdrawals = db
-      .prepare(
+  async (req, res) => {
+    try {
+      const result = await query(
         `
         SELECT
           w.id,
@@ -1054,10 +1183,16 @@ app.get(
           ON u.id=w.user_id
         ORDER BY w.id DESC
         `
-      )
-      .all();
+      );
 
-    res.json(withdrawals);
+      res.json(result.rows);
+    } catch (e) {
+      console.error(e);
+
+      res.status(500).json({
+        error: "Withdrawals load করা যায়নি"
+      });
+    }
   }
 );
 
@@ -1069,97 +1204,119 @@ app.get(
 app.patch(
   "/api/admin/withdrawals/:id",
   adminAuth,
-  (req, res) => {
-    const action = String(
-      req.body.status ||
-      req.body.action ||
-      ""
-    ).toLowerCase();
+  async (req, res) => {
+    const client = await pool.connect();
 
-    if (
-      !["approved", "rejected"].includes(action)
-    ) {
-      return res.status(400).json({
-        error: "Status approved অথবা rejected হতে হবে"
-      });
-    }
+    try {
+      const action = String(
+        req.body.status ||
+        req.body.action ||
+        ""
+      ).toLowerCase();
 
-    const withdrawal = db
-      .prepare(
-        `
-        SELECT *
-        FROM withdrawals
-        WHERE id=?
-        `
-      )
-      .get(req.params.id);
+      if (
+        !["approved", "rejected"].includes(action)
+      ) {
+        return res.status(400).json({
+          error:
+            "Status approved অথবা rejected হতে হবে"
+        });
+      }
 
-    if (!withdrawal) {
-      return res.status(404).json({
-        error: "Withdrawal পাওয়া যায়নি"
-      });
-    }
+      await client.query("BEGIN");
 
-    if (withdrawal.status !== "pending") {
-      return res.status(400).json({
-        error: "এই withdrawal ইতিমধ্যে process করা হয়েছে"
-      });
-    }
+      const withdrawalResult =
+        await client.query(
+          `
+          SELECT *
+          FROM withdrawals
+          WHERE id=$1
+          FOR UPDATE
+          `,
+          [req.params.id]
+        );
 
-    const tx = db.transaction(() => {
+      const withdrawal =
+        withdrawalResult.rows[0];
+
+      if (!withdrawal) {
+        await client.query("ROLLBACK");
+
+        return res.status(404).json({
+          error: "Withdrawal পাওয়া যায়নি"
+        });
+      }
+
+      if (withdrawal.status !== "pending") {
+        await client.query("ROLLBACK");
+
+        return res.status(400).json({
+          error:
+            "এই withdrawal ইতিমধ্যে process করা হয়েছে"
+        });
+      }
+
       if (action === "approved") {
-        db.prepare(
+        await client.query(
           `
           UPDATE withdrawals
           SET status='approved'
-          WHERE id=?
-          `
-        ).run(withdrawal.id);
+          WHERE id=$1
+          `,
+          [withdrawal.id]
+        );
 
-        db.prepare(
+        await client.query(
           `
           UPDATE users
-          SET total_withdrawn=total_withdrawn+?
-          WHERE id=?
-          `
-        ).run(
-          withdrawal.amount,
-          withdrawal.user_id
+          SET total_withdrawn=total_withdrawn+$1
+          WHERE id=$2
+          `,
+          [
+            withdrawal.amount,
+            withdrawal.user_id
+          ]
         );
       } else {
-        /*
-          Withdrawal request করার সময় balance
-          থেকে টাকা কেটে রাখা হয়েছিল।
-          Reject হলে সেই টাকা ফেরত যাবে।
-        */
-
-        db.prepare(
+        await client.query(
           `
           UPDATE withdrawals
           SET status='rejected'
-          WHERE id=?
-          `
-        ).run(withdrawal.id);
+          WHERE id=$1
+          `,
+          [withdrawal.id]
+        );
 
-        db.prepare(
+        await client.query(
           `
           UPDATE users
-          SET balance=balance+?
-          WHERE id=?
-          `
-        ).run(
-          withdrawal.amount,
-          withdrawal.user_id
+          SET balance=balance+$1
+          WHERE id=$2
+          `,
+          [
+            withdrawal.amount,
+            withdrawal.user_id
+          ]
         );
       }
-    });
 
-    tx();
+      await client.query("COMMIT");
 
-    res.json({
-      ok: true,
-      status: action
-    });
+      res.json({
+        ok: true,
+        status: action
+      });
+    } catch (e) {
+      await client.query("ROLLBACK");
+
+      console.error(e);
+
+      res.status(500).json({
+        error: "Withdrawal process করা যায়নি"
+      });
+    } finally {
+      client.release();
+    }
   }
 );
 
@@ -1171,20 +1328,26 @@ app.patch(
 app.get(
   "/api/admin/settings",
   adminAuth,
-  (req, res) => {
-    const rows = db
-      .prepare(
+  async (req, res) => {
+    try {
+      const result = await query(
         "SELECT key,value FROM settings"
-      )
-      .all();
+      );
 
-    const settings = {};
+      const settings = {};
 
-    for (const row of rows) {
-      settings[row.key] = row.value;
+      for (const row of result.rows) {
+        settings[row.key] = row.value;
+      }
+
+      res.json(settings);
+    } catch (e) {
+      console.error(e);
+
+      res.status(500).json({
+        error: "Settings load করা যায়নি"
+      });
     }
-
-    res.json(settings);
   }
 );
 
@@ -1192,73 +1355,94 @@ app.get(
 app.put(
   "/api/admin/settings",
   adminAuth,
-  (req, res) => {
-    const supportUrl =
-      String(
+  async (req, res) => {
+    try {
+      const supportUrl = String(
         req.body.telegramSupportUrl || ""
       ).trim();
 
-    const groupUrl =
-      String(
+      const groupUrl = String(
         req.body.telegramGroupUrl || ""
       ).trim();
 
-    if (supportUrl) {
-      db.prepare(
-        `
-        INSERT INTO settings(key,value)
-        VALUES('telegramSupportUrl',?)
-        ON CONFLICT(key)
-        DO UPDATE SET value=excluded.value
-        `
-      ).run(supportUrl);
-    }
+      if (supportUrl) {
+        await query(
+          `
+          INSERT INTO settings(key,value)
+          VALUES('telegramSupportUrl',$1)
+          ON CONFLICT(key)
+          DO UPDATE SET value=EXCLUDED.value
+          `,
+          [supportUrl]
+        );
+      }
 
-    if (groupUrl) {
-      db.prepare(
-        `
-        INSERT INTO settings(key,value)
-        VALUES('telegramGroupUrl',?)
-        ON CONFLICT(key)
-        DO UPDATE SET value=excluded.value
-        `
-      ).run(groupUrl);
-    }
+      if (groupUrl) {
+        await query(
+          `
+          INSERT INTO settings(key,value)
+          VALUES('telegramGroupUrl',$1)
+          ON CONFLICT(key)
+          DO UPDATE SET value=EXCLUDED.value
+          `,
+          [groupUrl]
+        );
+      }
 
-    res.json({
-      ok: true,
-      message: "Settings saved"
-    });
+      res.json({
+        ok: true,
+        message: "Settings saved"
+      });
+    } catch (e) {
+      console.error(e);
+
+      res.status(500).json({
+        error: "Settings save করা যায়নি"
+      });
+    }
   }
 );
 
 
 /* =========================================================
-   PUBLIC TELEGRAM SETTINGS
+   PUBLIC SETTINGS
 ========================================================= */
 
 app.get(
   "/api/settings",
-  (req, res) => {
-    const support = db
-      .prepare(
-        "SELECT value FROM settings WHERE key='telegramSupportUrl'"
-      )
-      .get();
+  async (req, res) => {
+    try {
+      const result = await query(
+        `
+        SELECT key,value
+        FROM settings
+        WHERE key IN
+        ('telegramSupportUrl','telegramGroupUrl')
+        `
+      );
 
-    const group = db
-      .prepare(
-        "SELECT value FROM settings WHERE key='telegramGroupUrl'"
-      )
-      .get();
+      const settings = {};
 
-    res.json({
-      telegramSupportUrl:
-        support?.value || TELEGRAM_SUPPORT_URL,
+      for (const row of result.rows) {
+        settings[row.key] = row.value;
+      }
 
-      telegramGroupUrl:
-        group?.value || TELEGRAM_GROUP_URL
-    });
+      res.json({
+        telegramSupportUrl:
+          settings.telegramSupportUrl ||
+          TELEGRAM_SUPPORT_URL,
+
+        telegramGroupUrl:
+          settings.telegramGroupUrl ||
+          TELEGRAM_GROUP_URL
+      });
+    } catch (e) {
+      console.error(e);
+
+      res.status(500).json({
+        error: "Settings load করা যায়নি"
+      });
+    }
   }
 );
 
@@ -1269,11 +1453,22 @@ app.get(
 
 app.get(
   "/api/health",
-  (req, res) => {
-    res.json({
-      ok: true,
-      name: "Work2Earn BD"
-    });
+  async (req, res) => {
+    try {
+      await query("SELECT 1");
+
+      res.json({
+        ok: true,
+        name: "Work2Earn BD",
+        database: "postgresql"
+      });
+    } catch (e) {
+      res.status(500).json({
+        ok: false,
+        name: "Work2Earn BD",
+        database: "error"
+      });
+    }
   }
 );
 
@@ -1282,11 +1477,23 @@ app.get(
    START SERVER
 ========================================================= */
 
-app.listen(
-  PORT,
-  () => {
-    console.log(
-      `Work2Earn BD running on port ${PORT}`
+async function startServer() {
+  try {
+    await initDatabase();
+
+    app.listen(PORT, () => {
+      console.log(
+        `Work2Earn BD running on port ${PORT}`
+      );
+    });
+  } catch (error) {
+    console.error(
+      "Database initialization failed:",
+      error
     );
+
+    process.exit(1);
   }
-);
+}
+
+startServer();
