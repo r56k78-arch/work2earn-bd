@@ -1,45 +1,201 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Work2Earn BD - Admin Panel</title>
-
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Work2Earn BD — Admin Panel</title>
   <link rel="stylesheet" href="admin.css">
 </head>
 
 <body>
 
-  <div class="box">
-    <h1>Work2Earn BD</h1>
-    <h2>Admin Panel</h2>
+<main class="wrap">
 
-    <p>Admin Login</p>
+  <!-- ADMIN LOGIN -->
+  <section id="loginBox" class="card login">
+
+    <div class="brand">Work2Earn BD</div>
+
+    <p class="muted">Admin Panel</p>
 
     <input
-      type="text"
-      id="adminUsername"
-      placeholder="Admin Username"
+      id="adminUser"
+      placeholder="Admin username"
+      autocomplete="username"
     >
 
     <input
+      id="adminPass"
       type="password"
-      id="adminPassword"
-      placeholder="Admin Password"
+      placeholder="Admin password"
+      autocomplete="current-password"
     >
 
-    <button onclick="adminLogin()">Login</button>
+    <button id="loginBtn">Login</button>
 
-    <div class="info">
-      <p>Dashboard</p>
-      <p>Users: 0</p>
-      <p>Tasks: 0</p>
-      <p>Pending Proofs: 0</p>
-      <p>Pending Withdrawals: 0</p>
-    </div>
-  </div>
+    <p id="loginMsg" class="msg"></p>
 
-  <script src="admin.js"></script>
+  </section>
+
+
+  <!-- ADMIN DASHBOARD -->
+  <section id="panel" hidden>
+
+    <header class="topbar">
+
+      <div>
+        <strong>Work2Earn BD</strong>
+        <span class="muted"> Admin Panel</span>
+      </div>
+
+      <button id="logoutBtn" class="secondary">
+        Logout
+      </button>
+
+    </header>
+
+
+    <div id="status" class="msg"></div>
+
+
+    <!-- STATISTICS -->
+    <section class="stats">
+
+      <div class="stat">
+        <span>Users</span>
+        <b id="sUsers">0</b>
+      </div>
+
+      <div class="stat">
+        <span>Tasks</span>
+        <b id="sTasks">0</b>
+      </div>
+
+      <div class="stat">
+        <span>Proofs</span>
+        <b id="sProofs">0</b>
+      </div>
+
+      <div class="stat">
+        <span>Withdrawals</span>
+        <b id="sWithdrawals">0</b>
+      </div>
+
+    </section>
+
+
+    <!-- CREATE TASK + TELEGRAM -->
+    <section class="grid">
+
+      <div class="card">
+
+        <h2>Create Task</h2>
+
+        <input
+          id="taskTitle"
+          placeholder="Task title"
+        >
+
+        <textarea
+          id="taskDesc"
+          placeholder="Task description"
+        ></textarea>
+
+        <input
+          id="taskReward"
+          type="number"
+          min="0"
+          step="0.01"
+          placeholder="Reward (BDT)"
+        >
+
+        <button id="createTaskBtn">
+          Create Task
+        </button>
+
+        <div id="taskMsg" class="msg"></div>
+
+      </div>
+
+
+      <div class="card">
+
+        <h2>Telegram Settings</h2>
+
+        <input
+          id="tgSupport"
+          placeholder="Telegram Support URL"
+        >
+
+        <input
+          id="tgGroup"
+          placeholder="Telegram Group URL"
+        >
+
+        <button id="saveTgBtn">
+          Save Telegram Settings
+        </button>
+
+        <div id="tgMsg" class="msg"></div>
+
+      </div>
+
+    </section>
+
+
+    <!-- TASKS -->
+    <section class="card">
+
+      <h2>Tasks</h2>
+
+      <div id="tasks">
+        Loading...
+      </div>
+
+    </section>
+
+
+    <!-- USERS -->
+    <section class="card">
+
+      <h2>Recent Users</h2>
+
+      <div id="users">
+        Loading...
+      </div>
+
+    </section>
+
+
+    <!-- PROOFS -->
+    <section class="card">
+
+      <h2>Pending Proofs</h2>
+
+      <div id="proofs">
+        Loading...
+      </div>
+
+    </section>
+
+
+    <!-- WITHDRAWALS -->
+    <section class="card">
+
+      <h2>Pending Withdrawals</h2>
+
+      <div id="withdrawals">
+        Loading...
+      </div>
+
+    </section>
+
+  </section>
+
+</main>
+
+
+<script src="admin.js"></script>
 
 </body>
 </html>
