@@ -1,1 +1,105 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
 
+  <title>Work2Earn BD - Admin Panel</title>
+
+  <style>
+    body {
+      margin: 0;
+      font-family: Arial, sans-serif;
+      background: #111;
+      color: white;
+      padding: 20px;
+    }
+
+    .box {
+      max-width: 500px;
+      margin: 40px auto;
+      background: #1d1d1d;
+      padding: 25px;
+      border-radius: 15px;
+    }
+
+    h1 {
+      margin-top: 0;
+    }
+
+    input {
+      width: 100%;
+      box-sizing: border-box;
+      padding: 12px;
+      margin: 8px 0;
+      border-radius: 8px;
+      border: 1px solid #444;
+      background: #292929;
+      color: white;
+    }
+
+    button {
+      width: 100%;
+      padding: 12px;
+      margin-top: 10px;
+      border: 0;
+      border-radius: 8px;
+      background: #00a884;
+      color: white;
+      font-size: 16px;
+      font-weight: bold;
+    }
+
+    .info {
+      margin-top: 20px;
+      padding: 15px;
+      background: #292929;
+      border-radius: 10px;
+    }
+  </style>
+</head>
+
+<body>
+
+  <div class="box">
+
+    <h1>Work2Earn BD</h1>
+
+    <h2>Admin Panel</h2>
+
+    <p>Admin Login</p>
+
+    <input
+      type="text"
+      id="adminUsername"
+      placeholder="Admin Username"
+    >
+
+    <input
+      type="password"
+      id="adminPassword"
+      placeholder="Admin Password"
+    >
+
+    <button onclick="adminLogin()">
+      Login
+    </button>
+
+    <div class="info">
+      <p>Dashboard</p>
+      <p>Users: 0</p>
+      <p>Tasks: 0</p>
+      <p>Pending Proofs: 0</p>
+      <p>Pending Withdrawals: 0</p>
+    </div>
+
+  </div>
+
+  <script>
+    function adminLogin() {
+      alert("Admin login system will be connected next.");
+    }
+  </script>
+
+</body>
+</html>
