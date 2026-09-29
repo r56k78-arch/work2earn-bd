@@ -2,6 +2,7 @@ const $ = (id) => document.getElementById(id);
 
 let token = localStorage.getItem("w2e_admin_token") || "";
 
+
 /* =========================
    MESSAGE
 ========================= */
@@ -52,20 +53,20 @@ async function api(path, options = {}) {
 ========================= */
 
 function showPanel() {
-  $("loginBox").hidden = true;
-  $("panel").hidden = false;
+  if ($("loginBox")) $("loginBox").hidden = true;
+  if ($("panel")) $("panel").hidden = false;
 
   loadAll();
 }
 
 function showLogin() {
-  $("loginBox").hidden = false;
-  $("panel").hidden = true;
+  if ($("loginBox")) $("loginBox").hidden = false;
+  if ($("panel")) $("panel").hidden = true;
 }
 
 async function login() {
-  const username = $("adminUser").value.trim();
-  const password = $("adminPass").value;
+  const username = $("adminUser")?.value.trim();
+  const password = $("adminPass")?.value || "";
 
   if (!username || !password) {
     msg($("loginMsg"), "Username এবং password দিন।");
@@ -73,16 +74,13 @@ async function login() {
   }
 
   try {
-    const data = await api(
-      "/api/admin/login",
-      {
-        method: "POST",
-        body: JSON.stringify({
-          username,
-          password
-        })
-      }
-    );
+    const data = await api("/api/admin/login", {
+      method: "POST",
+      body: JSON.stringify({
+        username,
+        password
+      })
+    });
 
     token = data.token;
 
@@ -91,7 +89,11 @@ async function login() {
       token
     );
 
-    msg($("loginMsg"), "Login successful.", true);
+    msg(
+      $("loginMsg"),
+      "Login successful.",
+      true
+    );
 
     showPanel();
 
@@ -102,36 +104,34 @@ async function login() {
 
 
 /* =========================
-   LOAD EVERYTHING
+   LOAD ALL
 ========================= */
 
 async function loadAll() {
 
   /* =========================
-     DASHBOARD STATS
+     DASHBOARD
   ========================= */
 
   try {
     const data = await api("/api/admin/stats");
 
-    $("sUsers").textContent =
-      data.users ?? 0;
+    if ($("sUsers"))
+      $("sUsers").textContent = data.users ?? 0;
 
-    $("sTasks").textContent =
-      data.tasks ?? 0;
+    if ($("sTasks"))
+      $("sTasks").textContent = data.tasks ?? 0;
 
-    $("sProofs").textContent =
-      data.pendingProofs ?? 0;
+    if ($("sProofs"))
+      $("sProofs").textContent =
+        data.pendingProofs ?? 0;
 
-    $("sWithdrawals").textContent =
-      data.pendingWithdrawals ?? 0;
+    if ($("sWithdrawals"))
+      $("sWithdrawals").textContent =
+        data.pendingWithdrawals ?? 0;
 
   } catch (error) {
-
-    msg(
-      $("status"),
-      error.message
-    );
+    msg($("status"), error.message);
   }
 
 
@@ -140,38 +140,98 @@ async function loadAll() {
   ========================= */
 
   try {
-
-    const data = await api(
-      "/api/admin/tasks"
-    );
+    const data = await api("/api/admin/tasks");
 
     const tasks = Array.isArray(data)
       ? data
       : [];
 
-    $("tasks").innerHTML =
-      tasks.map(task => `
-        <div class="item">
+    if ($("tasks")) {
 
-          <b>${escapeHTML(task.title)}</b>
+      $("tasks").innerHTML =
+        tasks.map(task => {
 
-          <p>
-            ${escapeHTML(task.description || "")}
-          </p>
+          const taskId = Number(task.id);
 
-          <strong>
-            Reward: ৳${task.reward}
-          </strong>
+          const active =
+            task.active !== false;
 
-        </div>
-      `).join("") ||
+          return `
+            <div class="item">
 
-      '<p class="muted">No tasks yet.</p>';
+              <b>
+                ${escapeHTML(
+                  task.title || "Untitled Task"
+                )}
+              </b>
+
+              <p>
+                ${escapeHTML(
+                  task.description || ""
+                )}
+              </p>
+
+              <p>
+                Task ID:
+                <strong>
+                  #${Number.isInteger(taskId)
+                    ? taskId
+                    : "-"}
+                </strong>
+              </p>
+
+              <p>
+                Reward:
+                <strong>
+                  ৳${task.reward ?? 0}
+                </strong>
+              </p>
+
+              <p>
+                Status:
+                <strong>
+                  ${active ? "Active" : "Deleted"}
+                </strong>
+              </p>
+
+              ${
+                active && Number.isInteger(taskId)
+                  ? `
+                    <button
+                      type="button"
+                      onclick="deleteTask(${taskId})"
+                      style="
+                        background:#dc2626;
+                        color:#fff;
+                        border:0;
+                        padding:9px 14px;
+                        border-radius:7px;
+                        cursor:pointer;
+                        margin-top:8px;
+                      "
+                    >
+                      🗑️ Delete Task
+                    </button>
+                  `
+                  : ""
+              }
+
+            </div>
+          `;
+
+        }).join("") ||
+
+        '<p class="muted">No tasks yet.</p>';
+    }
 
   } catch (error) {
 
-    $("tasks").innerHTML =
-      `<p class="error">${escapeHTML(error.message)}</p>`;
+    if ($("tasks")) {
+      $("tasks").innerHTML =
+        `<p class="error">${escapeHTML(
+          error.message
+        )}</p>`;
+    }
   }
 
 
@@ -180,59 +240,71 @@ async function loadAll() {
   ========================= */
 
   try {
-
-    const data = await api(
-      "/api/admin/users"
-    );
+    const data = await api("/api/admin/users");
 
     const users = Array.isArray(data)
       ? data
       : [];
 
-    $("users").innerHTML =
-      users.map(user => `
-        <div class="item">
+    if ($("users")) {
 
-          <b>
-            ${escapeHTML(user.username)}
-          </b>
+      $("users").innerHTML =
+        users.map(user => `
 
-          <p>
-            Mobile:
-            ${escapeHTML(user.mobile || "-")}
-          </p>
+          <div class="item">
 
-          <p>
-            Email:
-            ${escapeHTML(user.email || "-")}
-          </p>
+            <b>
+              ${escapeHTML(
+                user.username || "Unknown User"
+              )}
+            </b>
 
-          <p>
-            Balance:
-            <strong>
-              ৳${user.balance ?? 0}
-            </strong>
-          </p>
+            <p>
+              Mobile:
+              ${escapeHTML(
+                user.mobile || "-"
+              )}
+            </p>
 
-          <p>
-            Earned:
-            ৳${user.total_earned ?? 0}
-          </p>
+            <p>
+              Email:
+              ${escapeHTML(
+                user.email || "-"
+              )}
+            </p>
 
-          <p>
-            Referrals:
-            ${user.referrals ?? 0}
-          </p>
+            <p>
+              Balance:
+              <strong>
+                ৳${user.balance ?? 0}
+              </strong>
+            </p>
 
-        </div>
-      `).join("") ||
+            <p>
+              Earned:
+              ৳${user.total_earned ?? 0}
+            </p>
 
-      '<p class="muted">No users.</p>';
+            <p>
+              Referrals:
+              ${user.referrals ?? 0}
+            </p>
+
+          </div>
+
+        `).join("") ||
+
+        '<p class="muted">No users.</p>';
+    }
 
   } catch (error) {
 
-    $("users").innerHTML =
-      `<p class="error">${escapeHTML(error.message)}</p>`;
+    if ($("users")) {
+      $("users").innerHTML =
+        `<p class="error">${escapeHTML(
+          error.message
+        )}</p>`;
+    }
   }
 
 
@@ -241,114 +313,138 @@ async function loadAll() {
   ========================= */
 
   try {
-
-    const data = await api(
-      "/api/admin/proofs"
-    );
+    const data = await api("/api/admin/proofs");
 
     const proofs = Array.isArray(data)
       ? data
       : [];
 
-    $("proofs").innerHTML =
-      proofs.map(proof => {
+    if ($("proofs")) {
 
-        const status =
-          String(proof.status || "")
-            .toLowerCase();
+      $("proofs").innerHTML =
+        proofs.map(proof => {
 
-        const proofValue =
-          proof.proof || "";
+          const status =
+            String(
+              proof.status || ""
+            ).toLowerCase();
 
-        let proofHTML = "";
+          const proofValue =
+            String(
+              proof.proof || ""
+            );
 
-        if (
-          proofValue.startsWith("http://") ||
-          proofValue.startsWith("https://")
-        ) {
+          let proofHTML = "";
 
-          proofHTML = `
-            <p>
-              Proof:
-              <a
-                href="${escapeAttribute(proofValue)}"
-                target="_blank"
-                rel="noopener noreferrer"
-              >
-                Open Proof
-              </a>
-            </p>
+          if (
+            proofValue.startsWith("http://") ||
+            proofValue.startsWith("https://")
+          ) {
+
+            proofHTML = `
+              <p>
+                Proof:
+                <a
+                  href="${escapeAttribute(
+                    proofValue
+                  )}"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  Open Proof
+                </a>
+              </p>
+            `;
+
+          } else {
+
+            proofHTML = `
+              <p>
+                Proof:
+                ${escapeHTML(proofValue)}
+              </p>
+            `;
+          }
+
+          return `
+
+            <div class="item">
+
+              <b>
+                ${escapeHTML(
+                  proof.username ||
+                  "Unknown User"
+                )}
+              </b>
+
+              <p>
+                Task:
+                ${escapeHTML(
+                  proof.task_title ||
+                  "Unknown Task"
+                )}
+              </p>
+
+              <p>
+                Reward:
+                ৳${proof.reward ?? 0}
+              </p>
+
+              ${proofHTML}
+
+              <p>
+                Status:
+                <strong>
+                  ${escapeHTML(
+                    proof.status ||
+                    "pending"
+                  )}
+                </strong>
+              </p>
+
+              ${
+                status === "pending"
+                  ? `
+                    <button
+                      type="button"
+                      onclick="reviewProof(
+                        ${Number(proof.id)},
+                        'approved'
+                      )"
+                    >
+                      ✅ Approve
+                    </button>
+
+                    <button
+                      type="button"
+                      onclick="reviewProof(
+                        ${Number(proof.id)},
+                        'rejected'
+                      )"
+                    >
+                      ❌ Reject
+                    </button>
+                  `
+                  : ""
+              }
+
+            </div>
+
           `;
 
-        } else {
+        }).join("") ||
 
-          proofHTML = `
-            <p>
-              Proof:
-              ${escapeHTML(proofValue)}
-            </p>
-          `;
-        }
-
-        return `
-          <div class="item">
-
-            <b>
-              ${escapeHTML(
-                proof.username || "Unknown User"
-              )}
-            </b>
-
-            <p>
-              Task:
-              ${escapeHTML(
-                proof.task_title || "Unknown Task"
-              )}
-            </p>
-
-            <p>
-              Reward:
-              ৳${proof.reward ?? 0}
-            </p>
-
-            ${proofHTML}
-
-            <p>
-              Status:
-              <strong>
-                ${escapeHTML(proof.status || "pending")}
-              </strong>
-            </p>
-
-            ${
-              status === "pending"
-                ? `
-                  <button
-                    onclick="reviewProof(${proof.id}, 'approved')"
-                  >
-                    Approve
-                  </button>
-
-                  <button
-                    onclick="reviewProof(${proof.id}, 'rejected')"
-                  >
-                    Reject
-                  </button>
-                `
-                : ""
-            }
-
-          </div>
-        `;
-
-      }).join("") ||
-
-      '<p class="muted">No proofs.</p>';
+        '<p class="muted">No proofs.</p>';
+    }
 
   } catch (error) {
 
-    $("proofs").innerHTML =
-      `<p class="error">${escapeHTML(error.message)}</p>`;
+    if ($("proofs")) {
+      $("proofs").innerHTML =
+        `<p class="error">${escapeHTML(
+          error.message
+        )}</p>`;
+    }
   }
 
 
@@ -357,91 +453,109 @@ async function loadAll() {
   ========================= */
 
   try {
-
-    const data = await api(
-      "/api/admin/withdrawals"
-    );
+    const data =
+      await api("/api/admin/withdrawals");
 
     const withdrawals =
       Array.isArray(data)
         ? data
         : [];
 
-    $("withdrawals").innerHTML =
-      withdrawals.map(withdrawal => {
+    if ($("withdrawals")) {
 
-        const status =
-          String(withdrawal.status || "")
-            .toLowerCase();
+      $("withdrawals").innerHTML =
+        withdrawals.map(withdrawal => {
 
-        return `
-          <div class="item">
+          const status =
+            String(
+              withdrawal.status || ""
+            ).toLowerCase();
 
-            <b>
-              ${escapeHTML(
-                withdrawal.username || "Unknown User"
-              )}
-            </b>
+          return `
 
-            <p>
-              Method:
-              ${escapeHTML(
-                withdrawal.method || "-"
-              )}
-            </p>
+            <div class="item">
 
-            <p>
-              Account:
-              ${escapeHTML(
-                withdrawal.account || "-"
-              )}
-            </p>
-
-            <p>
-              Amount:
-              <strong>
-                ৳${withdrawal.amount ?? 0}
-              </strong>
-            </p>
-
-            <p>
-              Status:
-              <strong>
+              <b>
                 ${escapeHTML(
-                  withdrawal.status || "pending"
+                  withdrawal.username ||
+                  "Unknown User"
                 )}
-              </strong>
-            </p>
+              </b>
 
-            ${
-              status === "pending"
-                ? `
-                  <button
-                    onclick="reviewWithdrawal(${withdrawal.id}, 'approved')"
-                  >
-                    Approve
-                  </button>
+              <p>
+                Method:
+                ${escapeHTML(
+                  withdrawal.method || "-"
+                )}
+              </p>
 
-                  <button
-                    onclick="reviewWithdrawal(${withdrawal.id}, 'rejected')"
-                  >
-                    Reject
-                  </button>
-                `
-                : ""
-            }
+              <p>
+                Account:
+                ${escapeHTML(
+                  withdrawal.account || "-"
+                )}
+              </p>
 
-          </div>
-        `;
+              <p>
+                Amount:
+                <strong>
+                  ৳${withdrawal.amount ?? 0}
+                </strong>
+              </p>
 
-      }).join("") ||
+              <p>
+                Status:
+                <strong>
+                  ${escapeHTML(
+                    withdrawal.status ||
+                    "pending"
+                  )}
+                </strong>
+              </p>
 
-      '<p class="muted">No withdrawals.</p>';
+              ${
+                status === "pending"
+                  ? `
+                    <button
+                      type="button"
+                      onclick="reviewWithdrawal(
+                        ${Number(withdrawal.id)},
+                        'approved'
+                      )"
+                    >
+                      ✅ Approve
+                    </button>
+
+                    <button
+                      type="button"
+                      onclick="reviewWithdrawal(
+                        ${Number(withdrawal.id)},
+                        'rejected'
+                      )"
+                    >
+                      ❌ Reject
+                    </button>
+                  `
+                  : ""
+              }
+
+            </div>
+
+          `;
+
+        }).join("") ||
+
+        '<p class="muted">No withdrawals.</p>';
+    }
 
   } catch (error) {
 
-    $("withdrawals").innerHTML =
-      `<p class="error">${escapeHTML(error.message)}</p>`;
+    if ($("withdrawals")) {
+      $("withdrawals").innerHTML =
+        `<p class="error">${escapeHTML(
+          error.message
+        )}</p>`;
+    }
   }
 
 
@@ -450,16 +564,18 @@ async function loadAll() {
   ========================= */
 
   try {
+    const data =
+      await api("/api/admin/settings");
 
-    const data = await api(
-      "/api/admin/settings"
-    );
+    if ($("tgSupport")) {
+      $("tgSupport").value =
+        data.telegramSupportUrl || "";
+    }
 
-    $("tgSupport").value =
-      data.telegramSupportUrl || "";
-
-    $("tgGroup").value =
-      data.telegramGroupUrl || "";
+    if ($("tgGroup")) {
+      $("tgGroup").value =
+        data.telegramGroupUrl || "";
+    }
 
   } catch (error) {
 
@@ -478,13 +594,15 @@ async function loadAll() {
 async function createTask() {
 
   const title =
-    $("taskTitle").value.trim();
+    $("taskTitle")?.value.trim();
 
   const description =
-    $("taskDesc").value.trim();
+    $("taskDesc")?.value.trim();
 
   const reward =
-    Number($("taskReward").value);
+    Number(
+      $("taskReward")?.value
+    );
 
   if (!title) {
     msg(
@@ -531,9 +649,14 @@ async function createTask() {
       true
     );
 
-    $("taskTitle").value = "";
-    $("taskDesc").value = "";
-    $("taskReward").value = "";
+    if ($("taskTitle"))
+      $("taskTitle").value = "";
+
+    if ($("taskDesc"))
+      $("taskDesc").value = "";
+
+    if ($("taskReward"))
+      $("taskReward").value = "";
 
     await loadAll();
 
@@ -542,6 +665,53 @@ async function createTask() {
     msg(
       $("taskMsg"),
       error.message
+    );
+  }
+}
+
+
+/* =========================
+   DELETE TASK
+========================= */
+
+async function deleteTask(id) {
+
+  const taskId = Number(id);
+
+  if (!Number.isInteger(taskId)) {
+    alert("Invalid Task ID.");
+    return;
+  }
+
+  const confirmed = confirm(
+    "⚠️ এই Task টি Delete করতে চান?\n\n" +
+    "Task টি Worker-এর Active Task List থেকে চলে যাবে।\n" +
+    "পুরোনো submission/history রাখা থাকবে।"
+  );
+
+  if (!confirmed) {
+    return;
+  }
+
+  try {
+
+    await api(
+      `/api/admin/tasks/${taskId}`,
+      {
+        method: "DELETE"
+      }
+    );
+
+    alert(
+      "✅ Task deleted successfully."
+    );
+
+    await loadAll();
+
+  } catch (error) {
+
+    alert(
+      "❌ " + error.message
     );
   }
 }
@@ -561,11 +731,13 @@ async function saveTelegram() {
         method: "PUT",
 
         body: JSON.stringify({
+
           telegramSupportUrl:
-            $("tgSupport").value.trim(),
+            $("tgSupport")?.value.trim() || "",
 
           telegramGroupUrl:
-            $("tgGroup").value.trim()
+            $("tgGroup")?.value.trim() || ""
+
         })
       }
     );
@@ -590,10 +762,7 @@ async function saveTelegram() {
    REVIEW PROOF
 ========================= */
 
-async function reviewProof(
-  id,
-  status
-) {
+async function reviewProof(id, status) {
 
   const question =
     status === "approved"
@@ -621,7 +790,9 @@ async function reviewProof(
 
   } catch (error) {
 
-    alert(error.message);
+    alert(
+      "❌ " + error.message
+    );
   }
 }
 
@@ -630,10 +801,7 @@ async function reviewProof(
    REVIEW WITHDRAWAL
 ========================= */
 
-async function reviewWithdrawal(
-  id,
-  status
-) {
+async function reviewWithdrawal(id, status) {
 
   const question =
     status === "approved"
@@ -661,18 +829,22 @@ async function reviewWithdrawal(
 
   } catch (error) {
 
-    alert(error.message);
+    alert(
+      "❌ " + error.message
+    );
   }
 }
 
 
 /* =========================
-   SECURITY / HTML ESCAPE
+   SECURITY
 ========================= */
 
 function escapeHTML(value) {
 
-  return String(value ?? "").replace(
+  return String(
+    value ?? ""
+  ).replace(
     /[&<>"']/g,
 
     character => ({
@@ -688,7 +860,9 @@ function escapeHTML(value) {
 
 function escapeAttribute(value) {
 
-  return String(value ?? "")
+  return String(
+    value ?? ""
+  )
     .replace(/&/g, "&amp;")
     .replace(/"/g, "&quot;")
     .replace(/</g, "&lt;")
@@ -700,25 +874,33 @@ function escapeAttribute(value) {
    BUTTONS
 ========================= */
 
-$("loginBtn").onclick = login;
+if ($("loginBtn")) {
+  $("loginBtn").onclick = login;
+}
 
-$("createTaskBtn").onclick =
-  createTask;
+if ($("createTaskBtn")) {
+  $("createTaskBtn").onclick =
+    createTask;
+}
 
-$("saveTgBtn").onclick =
-  saveTelegram;
+if ($("saveTgBtn")) {
+  $("saveTgBtn").onclick =
+    saveTelegram;
+}
 
+if ($("logoutBtn")) {
 
-$("logoutBtn").onclick = () => {
+  $("logoutBtn").onclick = () => {
 
-  token = "";
+    token = "";
 
-  localStorage.removeItem(
-    "w2e_admin_token"
-  );
+    localStorage.removeItem(
+      "w2e_admin_token"
+    );
 
-  showLogin();
-};
+    showLogin();
+  };
+}
 
 
 /* =========================
@@ -727,4 +909,6 @@ $("logoutBtn").onclick = () => {
 
 if (token) {
   showPanel();
+} else {
+  showLogin();
 }
