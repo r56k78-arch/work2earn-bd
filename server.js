@@ -302,7 +302,9 @@ app.get("/health", async(req,res)=>{try{await query("SELECT 1");res.json({ok:tru
 
 // IMPORTANT: serve the Admin Panel from /public/admin
 app.use("/admin", express.static(path.join(__dirname, "public/admin")));
-app.use(express.static("."));
+app.get("/", (req, res) => res.sendFile(path.join(__dirname, "index.html")));
+app.get("/app.js", (req, res) => res.sendFile(path.join(__dirname, "app.js")));
+app.get("/style.css", (req, res) => res.sendFile(path.join(__dirname, "style.css")));
 
 async function startServer(){
   try{await initDb();app.listen(PORT,()=>console.log(`Work2Earn BD running on port ${PORT}`));}
