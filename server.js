@@ -75,6 +75,19 @@ async function initDb() {
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
   )`);
 
+  // Safe, additive migrations for databases created by older versions.
+  // These ALTERs never drop or reset existing users or balances.
+  await query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS referred_by INTEGER REFERENCES users(id) ON DELETE SET NULL`);
+  await query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS balance INTEGER NOT NULL DEFAULT 0`);
+  await query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS deposit_balance INTEGER NOT NULL DEFAULT 0`);
+  await query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS total_earned INTEGER NOT NULL DEFAULT 0`);
+  await query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS total_deposited INTEGER NOT NULL DEFAULT 0`);
+  await query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS total_withdrawn INTEGER NOT NULL DEFAULT 0`);
+  await query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS referrals INTEGER NOT NULL DEFAULT 0`);
+  await query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS completed_tasks INTEGER NOT NULL DEFAULT 0`);
+  await query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS banned BOOLEAN NOT NULL DEFAULT FALSE`);
+  await query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()`);
+
   await query(`CREATE TABLE IF NOT EXISTS tasks (
     id SERIAL PRIMARY KEY,
     title TEXT NOT NULL,
